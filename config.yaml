@@ -1,0 +1,7 @@
+solve:
+  timeLimit: 5
+  optimalityGap: 0.2
+  roleCouplingWeight: 5
+  rotationBeatWeight: 0
+  spotterMode: 1
+  allowNoSpotter: false
