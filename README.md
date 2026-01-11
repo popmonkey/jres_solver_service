@@ -46,34 +46,29 @@ cargo run
 
 ## Production Setup
 
-For production deployment on Debian 13, follow these steps:
+For production deployment on Debian 13, you can use the provided automated installation script.
 
 ### Requirements
 
 *   **OS:** Debian 13 (Linux)
-*   **Architecture:** Typically x86_64 (ensure you match the library build)
+*   **Architecture:** Typically x86_64 (ensure you match the library build in `vendor/jres_solver/lib/`)
 *   **Reverse Proxy:** Apache2 (configured to proxy to `localhost:8080`)
-*   **Service Manager:** systemd
+*   **Permissions:** Root/sudo access for installation
 
-### Setup Steps
+### Automated Installation
 
-1.  **Get the Linux Library:**
-    Download the Linux version of `jres_solver_cpp` (static library `libjres_solver.a`) from the [releases page](https://github.com/popmonkey/jres_solver_cpp/releases/latest) and place it in `vendor/jres_solver/lib/`.
-
-2.  **Install Highs on Server:**
-    Ensure `libhighs` is installed on the Debian server:
+1.  **Transfer Source:** Copy the project source code to your Debian server.
+2.  **Verify Linux Library:** Ensure the `libjres_solver.a` in `vendor/jres_solver/lib/` is the Linux version.
+3.  **Run Installer:**
     ```bash
-    sudo apt install libhighs-dev
+    chmod +x install.sh
+    sudo ./install.sh
     ```
 
-3.  **Build the Service:**
-    Build the Rust binary in release mode:
-    ```bash
-    cargo build --release
-    ```
-    The artifact will be located at `target/release/jres_solver_service`.
+The script will automatically install dependencies, create a dedicated `jres` user, build the service in release mode, and configure a `systemd` unit (`jres_solver.service`) to ensure the service starts at boot and recovers from crashes.
 
-4.  **Deployment:**
-    *   Copy the binary to the Debian 13 server.
-    *   Since `jres_solver` is statically linked, you do not need to copy its library file.
-    *   Configure a `systemd` unit to manage the service.
+### Service Management
+
+*   **Check status:** `sudo systemctl status jres_solver`
+*   **View logs:** `sudo journalctl -u jres_solver -f`
+*   **Restart:** `sudo systemctl restart jres_solver`
