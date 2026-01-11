@@ -17,14 +17,28 @@ echo "Updating package lists..."
 apt-get update
 
 echo "Installing dependencies..."
-# Install build tools and Highs dependency
-# Note: Debian 13 (Trixie) might have libhighs-dev. If not, it needs to be built from source.
-if apt-cache show libhighs-dev >/dev/null 2>&1; then
-    apt-get install -y build-essential curl pkg-config libhighs-dev
+# Install build tools
+apt-get install -y build-essential curl pkg-config cmake git unzip rsync
+
+# Setup local Highs dependency
+HIGHS_DIR="vendor/highs"
+REQUIRED_HIGHS_URL="https://github.com/popmonkey/jres_solver_cpp/releases/download/highs-static-v1.12.0/highs-v1.12.0-linux-x64.zip"
+
+if [ ! -d "$HIGHS_DIR" ]; then
+    echo "Setting up local Highs dependency in $HIGHS_DIR..."
+    mkdir -p $HIGHS_DIR
+    
+    TMP_DIR=$(mktemp -d)
+    echo "Downloading prebuilt Highs..."
+    curl -L -o $TMP_DIR/highs.zip "$REQUIRED_HIGHS_URL"
+    
+    echo "Extracting Highs..."
+    unzip -q $TMP_DIR/highs.zip -d $HIGHS_DIR
+    
+    rm -rf $TMP_DIR
+    echo "Highs setup complete."
 else
-    echo "Warning: libhighs-dev not found in apt repositories. Please install Highs manually."
-    echo "Attempting to continue with build essentials only..."
-    apt-get install -y build-essential curl pkg-config
+    echo "Local Highs dependency found in $HIGHS_DIR."
 fi
 
 # Install Rust if not present
@@ -44,7 +58,7 @@ fi
 echo "Setting up installation directory at $INSTALL_DIR..."
 mkdir -p $INSTALL_DIR
 # We assume the script is run from inside the source directory
-cp -r . $INSTALL_DIR/
+rsync -av --exclude='target' ./ "$INSTALL_DIR/"
 chown -R $USER_NAME:$USER_NAME $INSTALL_DIR
 
 # Build the service
@@ -88,7 +102,7 @@ echo "Enabling service to start on boot..."
 systemctl enable $SERVICE_NAME
 
 echo "Starting service..."
-systemctl start $SERVICE_NAME
+systemctl restart $SERVICE_NAME
 
 echo "Installation complete!"
 echo "Status:"

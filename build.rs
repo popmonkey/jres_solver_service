@@ -2,6 +2,7 @@ fn main() {
     cxx_build::bridge("src/main.rs")
         .file("src/shim.cc")
         .include("vendor/jres_solver/include")
+        .include("vendor/highs/include")
         .include(".")
         .flag_if_supported("-std=c++14")
         .compile("jres_solver_bridge");
@@ -10,10 +11,10 @@ fn main() {
     println!("cargo:rustc-link-lib=static=jres_solver");
     
     // Link against Highs (dependency of jres_solver)
-    // Check common paths for Highs
-    println!("cargo:rustc-link-search=native=/opt/homebrew/lib");
-    println!("cargo:rustc-link-search=native=/usr/local/lib");
-    println!("cargo:rustc-link-lib=dylib=highs");
+    println!("cargo:rustc-link-search=native=vendor/highs/lib");
+    println!("cargo:rustc-link-lib=static=highs");
+    // Highs might have dependencies, usually it's just standard C++ libs which Rust handles,
+    // but sometimes -lz or -lm are needed. Assuming standard for now.
 
     println!("cargo:rerun-if-changed=src/main.rs");
     println!("cargo:rerun-if-changed=src/shim.cc");
