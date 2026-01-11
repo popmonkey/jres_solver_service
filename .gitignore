@@ -15,3 +15,6 @@ target
 
 # vendor
 vendor/**
+
+# Secrets
+jres_api_key.txt

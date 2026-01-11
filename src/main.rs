@@ -1,5 +1,8 @@
 use axum::{
-    extract::{Query, State},
+    extract::{Query, Request, State},
+    http::{HeaderMap, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::post,
     Json, Router,
 };
@@ -43,6 +46,11 @@ struct AppConfig {
     solve: SolveConfig,
 }
 
+struct AppState {
+    config: Arc<AppConfig>,
+    api_key: String,
+}
+
 // Query parameters
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,11 +59,32 @@ struct SolveQueryParams {
     allow_no_spotter: Option<bool>,
 }
 
+async fn auth(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> Response {
+    let api_key_header = headers
+        .get("X-API-KEY")
+        .and_then(|value| value.to_str().ok());
+
+    match api_key_header {
+        Some(key) if key == state.api_key => next.run(request).await,
+        _ => {
+            let error_body = serde_json::json!({ "error": "Unknown API key error" });
+            (StatusCode::UNAUTHORIZED, Json(error_body)).into_response()
+        }
+    }
+}
+
 async fn solve(
-    State(config): State<Arc<AppConfig>>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<SolveQueryParams>,
     Json(input): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
+    let config = &state.config;
+
     // Merge config defaults with query parameters
     let options = ffi::SolverOptions {
         time_limit: config.solve.time_limit,
@@ -87,9 +116,21 @@ async fn main() {
     let config: AppConfig = serde_yaml::from_reader(config_file).expect("Failed to parse config.yaml");
     let config = Arc::new(config);
 
+    // Load API Key
+    let api_key = std::fs::read_to_string("jres_api_key.txt")
+        .expect("Failed to read jres_api_key.txt")
+        .trim()
+        .to_string();
+
+    let state = Arc::new(AppState {
+        config,
+        api_key,
+    });
+
     let app = Router::new()
         .route("/solve", post(solve))
-        .with_state(config);
+        .layer(middleware::from_fn_with_state(state.clone(), auth))
+        .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
     println!("listening on {}", addr);

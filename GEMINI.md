@@ -11,7 +11,7 @@ A high-performance web service built in Rust that wraps the `jres_solver_cpp` li
 * **Web Framework:** `axum` (Tokio-based)
 * **Serialization:** `serde` & `serde_json`
 * **Build System:** `cargo` + `build.rs`
-* **Dependency Version:** `jres_solver_cpp` v3.1.0
+* **Dependency Version:** `jres_solver_cpp` v3 or higher
 * **External Lib:** `Highs` optimization library (dylib)
 
 ## Architecture
@@ -30,6 +30,7 @@ A high-performance web service built in Rust that wraps the `jres_solver_cpp` li
   * use the linux static library (`.a`) for production
 * **FFI:** `cxx` is used to bridge Rust and C++. A shim layer (`src/shim.cc`) is used to bridge the library's classes to `cxx`.
 * **Threading:** Heavy solver tasks are wrapped in `tokio::task::spawn_blocking` to prevent starving the async executor.
+* **Authentication:** Requests must include a valid `X-API-KEY` header. The key is loaded from a local `jres_api_key.txt` file at startup.
 
 ## Deployment Strategy
 
