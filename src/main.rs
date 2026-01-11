@@ -42,8 +42,15 @@ struct SolveConfig {
 }
 
 #[derive(Clone, Deserialize)]
+struct ServerConfig {
+    ip: String,
+    port: u16,
+}
+
+#[derive(Clone, Deserialize)]
 struct AppConfig {
     solve: SolveConfig,
+    server: ServerConfig,
 }
 
 struct AppState {
@@ -123,7 +130,7 @@ async fn main() {
         .to_string();
 
     let state = Arc::new(AppState {
-        config,
+        config: config.clone(),
         api_key,
     });
 
@@ -132,7 +139,8 @@ async fn main() {
         .layer(middleware::from_fn_with_state(state.clone(), auth))
         .with_state(state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+    let addr_str = format!("{}:{}", config.server.ip, config.server.port);
+    let addr: SocketAddr = addr_str.parse().expect("Invalid IP or port in config.yaml");
     println!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
