@@ -70,5 +70,29 @@ The script will automatically install dependencies, create a dedicated `jres` us
 ### Service Management
 
 *   **Check status:** `sudo systemctl status jres_solver`
-*   **View logs:** `sudo journalctl -u jres_solver -f`
+*   **View logs:** `sudo journalctl -u jres_solver -f` (for systemd logs) or check `/var/log/jres_solver/jres_solver.log`
 *   **Restart:** `sudo systemctl restart jres_solver`
+
+## Logging
+
+The service uses the `tracing` crate for structured logging.
+
+### Production
+
+In production, the service logs to `/var/log/jres_solver/jres_solver.log`. 
+- **Rotation:** Managed by `logrotate` (daily, 14 days retention).
+- **Configuration:** Set via the `LOG_DIR` and `RUST_LOG` environment variables in the systemd service file.
+
+### Development
+
+When running locally without the `LOG_DIR` environment variable, logs are directed to **stdout**.
+
+### What is logged
+
+- Service start and stop operations.
+- Every request, including:
+    - HTTP method and URI.
+    - Referrer header.
+    - Query parameters (e.g., `spotterMode`, `allowNoSpotter`).
+- Unauthorized access attempts.
+

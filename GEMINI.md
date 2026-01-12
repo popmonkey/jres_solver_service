@@ -10,7 +10,7 @@ A high-performance web service built in Rust that wraps the `jres_solver_cpp` li
 * **C++ Interop:** `cxx` crate
 * **Web Framework:** `axum` (Tokio-based)
 * **Serialization:** `serde` & `serde_json`
-* **Build System:** `cargo` + `build.rs`
+* **Build System:** `cargo` + `build.rs` (Path: `~/.cargo/bin/cargo`)
 * **Dependency Version:** `jres_solver_cpp` v3 or higher
 * **External Lib:** `Highs` optimization library (dylib)
 

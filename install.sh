@@ -4,6 +4,7 @@ set -e
 # Configuration
 SERVICE_NAME="jres_solver"
 INSTALL_DIR="/opt/jres_solver_service"
+LOG_DIR="/var/log/jres_solver"
 USER_NAME="jres"
 BINARY_NAME="jres_solver_service"
 
@@ -18,7 +19,29 @@ apt-get update
 
 echo "Installing dependencies..."
 # Install build tools
-apt-get install -y build-essential curl pkg-config cmake git unzip rsync
+apt-get install -y build-essential curl pkg-config cmake git unzip rsync logrotate
+
+# Setup log directory
+echo "Setting up log directory at $LOG_DIR..."
+mkdir -p $LOG_DIR
+chown $USER_NAME:$USER_NAME $LOG_DIR
+chmod 755 $LOG_DIR
+
+# Setup logrotate
+echo "Configuring logrotate..."
+cat > /etc/logrotate.d/${SERVICE_NAME} <<EOF
+$LOG_DIR/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    copytruncate
+    create 0640 $USER_NAME $USER_NAME
+    sharedscripts
+}
+EOF
 
 # Setup local Highs dependency
 HIGHS_DIR="vendor/highs"
@@ -87,8 +110,9 @@ WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/target/release/$BINARY_NAME
 Restart=always
 RestartSec=5
-# Environment variables if needed
-# Environment=RUST_LOG=info
+# Environment variables
+Environment=LOG_DIR=$LOG_DIR
+Environment=RUST_LOG=info
 
 [Install]
 WantedBy=multi-user.target

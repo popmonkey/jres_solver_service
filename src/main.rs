@@ -10,6 +10,8 @@ use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::task;
+use tracing::{info, warn};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[cxx::bridge]
 mod ffi {
@@ -59,7 +61,7 @@ struct AppState {
 }
 
 // Query parameters
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct SolveQueryParams {
     spotter_mode: Option<i32>,
@@ -80,9 +82,49 @@ async fn auth(
         Some(key) if key == state.api_key => next.run(request).await,
         _ => {
             let error_body = serde_json::json!({ "error": "Unknown API key error" });
+            let cf_ip = headers
+                .get("cf-connecting-ip")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("unknown");
+            warn!("Unauthorized request from IP: {}, Referer: {:?}", cf_ip, headers.get("referer"));
             (StatusCode::UNAUTHORIZED, Json(error_body)).into_response()
         }
     }
+}
+
+async fn log_request(
+    State(_state): State<Arc<AppState>>,
+    Query(params): Query<SolveQueryParams>,
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> Response {
+    let referrer = headers
+        .get("referer")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+    
+    let cf_ip = headers
+        .get("cf-connecting-ip")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
+    let origin = headers
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+    
+    info!(
+        method = %request.method(),
+        uri = %request.uri(),
+        referrer = %referrer,
+        origin = %origin,
+        cf_ip = %cf_ip,
+        params = ?params,
+        "Handling request"
+    );
+    
+    next.run(request).await
 }
 
 async fn solve(
@@ -90,6 +132,11 @@ async fn solve(
     Query(params): Query<SolveQueryParams>,
     Json(input): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
+    let user = input.get("user")
+        .and_then(|v| v.as_str())
+        .unwrap_or("none");
+    info!(user = %user, "Solving request");
+
     let config = &state.config;
 
     // Merge config defaults with query parameters
@@ -113,11 +160,63 @@ async fn solve(
         serde_json::json!({ "error": "Invalid JSON returned from solver", "raw": result })
     });
 
+    let success = result_json.get("schedule")
+        .and_then(|s| s.as_array())
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+
+    if success {
+        info!(user = %user, "Solver SUCCESS");
+    } else {
+        let diagnosis = result_json.get("diagnosis")
+            .and_then(|d| d.as_array())
+            .map(|arr| arr.iter().map(|v| v.as_str().unwrap_or("")).collect::<Vec<_>>().join("; "))
+            .unwrap_or_else(|| "Unknown error or no diagnosis".to_string());
+        
+        info!(user = %user, diagnosis = %diagnosis, "Solver UNSATISFIABLE");
+    }
+
     Json(result_json)
 }
 
 #[tokio::main]
 async fn main() {
+    // Initialize logging
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("jres_solver_service=info,tower_http=info"));
+
+    let log_dir = std::env::var("LOG_DIR").ok();
+    
+    if let Some(dir) = log_dir {
+        let log_path = std::path::Path::new(&dir).join("jres_solver.log");
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)
+            .expect("Failed to open log file");
+
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file);
+        
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer().with_writer(non_blocking).with_ansi(false))
+            .init();
+        
+        // Note: _guard must be kept alive for the duration of the program
+        // Since we are in main, we can leak it or move it to a global if needed, 
+        // but for a simple service, it's often fine to just let it drop at the end of main 
+        // if main never returns. However, axum's serve will return on shutdown.
+        // To be safe, we can use Box::leak.
+        Box::leak(Box::new(_guard));
+    } else {
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(fmt::layer())
+            .init();
+    }
+
+    info!("Starting JRES Solver Service");
+
     // Load configuration
     let config_file = std::fs::File::open("config.yaml").expect("Failed to open config.yaml");
     let config: AppConfig = serde_yaml::from_reader(config_file).expect("Failed to parse config.yaml");
@@ -136,12 +235,28 @@ async fn main() {
 
     let app = Router::new()
         .route("/solve", post(solve))
+        .layer(middleware::from_fn_with_state(state.clone(), log_request))
         .layer(middleware::from_fn_with_state(state.clone(), auth))
         .with_state(state);
 
     let addr_str = format!("{}:{}", config.server.ip, config.server.port);
     let addr: SocketAddr = addr_str.parse().expect("Invalid IP or port in config.yaml");
-    println!("listening on {}", addr);
+    info!("listening on {}", addr);
+    
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    
+    let server = axum::serve(listener, app);
+    
+    let graceful = server.with_graceful_shutdown(async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install CTRL+C handler");
+        info!("Shutdown signal received");
+    });
+
+    if let Err(e) = graceful.await {
+        warn!("Server error: {}", e);
+    }
+
+    info!("Stopping JRES Solver Service");
 }
