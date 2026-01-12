@@ -104,6 +104,66 @@ systemctl enable $SERVICE_NAME
 echo "Starting service..."
 systemctl restart $SERVICE_NAME
 
+# Configure Apache Proxy
+if [ -d "/etc/apache2" ]; then
+    echo "Configuring Apache reverse proxy..."
+
+    # Enable required modules
+    if command -v a2enmod &> /dev/null; then
+        a2enmod proxy proxy_http
+    fi
+
+    # Extract port from config.yaml
+    CONFIG_PATH="$INSTALL_DIR/config.yaml"
+    SERVICE_PORT="8080" # Default
+    if [ -f "$CONFIG_PATH" ]; then
+        DETECTED_PORT=$(grep "port:" "$CONFIG_PATH" | awk '{print $2}' | tr -d '[:space:]')
+        if [ ! -z "$DETECTED_PORT" ]; then
+            SERVICE_PORT="$DETECTED_PORT"
+        fi
+    fi
+    echo "Using service port: $SERVICE_PORT"
+
+    CONF_FILE="/etc/apache2/sites-enabled/json.racing.conf"
+    APACHE_CHANGED=false
+
+    if [ -f "$CONF_FILE" ]; then
+        if ! grep -q "ProxyPass /api/solve" "$CONF_FILE"; then
+            echo "Adding proxy configuration to $CONF_FILE..."
+            # Insert proxy settings before the closing VirtualHost tag
+            sed -i "/<\/VirtualHost>/i \\
+    ProxyPreserveHost On\\
+    ProxyPass /api/solve http://127.0.0.1:$SERVICE_PORT/solve\\
+    ProxyPassReverse /api/solve http://127.0.0.1:$SERVICE_PORT/solve" "$CONF_FILE"
+            APACHE_CHANGED=true
+        else
+            echo "Proxy configuration already exists in $CONF_FILE."
+        fi
+    else
+        echo "Creating $CONF_FILE..."
+        cat > "$CONF_FILE" <<EOF
+<VirtualHost *:80>
+    ServerName json.racing
+    DocumentRoot "/home/www/json.racing"
+    CustomLog "/var/log/apache2/json.racing.access_log" combined
+
+    ProxyPreserveHost On
+    ProxyPass /api/solve http://127.0.0.1:$SERVICE_PORT/solve
+    ProxyPassReverse /api/solve http://127.0.0.1:$SERVICE_PORT/solve
+</VirtualHost>
+EOF
+        APACHE_CHANGED=true
+    fi
+
+    # Reload Apache to apply changes
+    if [ "$APACHE_CHANGED" = true ] && systemctl is-active --quiet apache2; then
+        systemctl reload apache2
+        echo "Apache reloaded."
+    fi
+else
+    echo "Apache not found, skipping proxy configuration."
+fi
+
 echo "Installation complete!"
 echo "Status:"
 systemctl status $SERVICE_NAME --no-pager
