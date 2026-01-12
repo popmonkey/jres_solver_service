@@ -19,6 +19,7 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 #[cxx::bridge]
 mod ffi {
+    #[derive(Clone, Debug)]
     struct SolverOptions {
         time_limit: i32,
         spotter_mode: i32,
@@ -26,6 +27,7 @@ mod ffi {
         optimality_gap: f64,
         role_coupling_weight: f64,
         rotation_beat_weight: f64,
+        diagnose: bool,
     }
 
     unsafe extern "C++" {
@@ -145,18 +147,41 @@ async fn solve(
         optimality_gap: config.solve.optimality_gap,
         role_coupling_weight: config.solve.role_coupling_weight,
         rotation_beat_weight: config.solve.rotation_beat_weight,
+        diagnose: false,
     };
 
     let input_str = input.to_string();
+    let input_str_solve = input_str.clone();
+    let options_solve = options.clone();
 
     // Spawn blocking task for the solver
     let result = task::spawn_blocking(move || {
-        ffi::solve_wrapper(input_str, &options)
+        ffi::solve_wrapper(input_str_solve, &options_solve)
     }).await.expect("Task failed");
 
-    let result_json: serde_json::Value = serde_json::from_str(&result).unwrap_or_else(|_| {
+    let mut result_json: serde_json::Value = serde_json::from_str(&result).unwrap_or_else(|_| {
         serde_json::json!({ "error": "Invalid JSON returned from solver", "raw": result })
     });
+
+    let is_failure = result_json.get("diagnosis")
+        .and_then(|d| d.as_array())
+        .map(|arr| !arr.is_empty())
+        .unwrap_or(false);
+
+    if is_failure {
+        info!(instance_id = %instance_id, "Solver failed, retrying with diagnosis...");
+        let input_str_diag = input_str.clone();
+        let mut options_diag = options.clone();
+        options_diag.diagnose = true;
+
+        let result_diag = task::spawn_blocking(move || {
+            ffi::solve_wrapper(input_str_diag, &options_diag)
+        }).await.expect("Task failed");
+
+        result_json = serde_json::from_str(&result_diag).unwrap_or_else(|_| {
+             serde_json::json!({ "error": "Invalid JSON returned from diagnosis", "raw": result_diag })
+        });
+    }
 
     // Log result if configured
     if let Some(req_dir) = &config.server.request_directory {

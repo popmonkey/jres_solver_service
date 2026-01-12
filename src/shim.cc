@@ -25,7 +25,12 @@ rust::String solve_wrapper(rust::String input_json, const SolverOptions& options
     }
 
     // Solve
-    JresSolverOutput* output = solve_race_schedule(input, &c_options);
+    JresSolverOutput* output;
+    if (options.diagnose) {
+        output = diagnose_race_schedule(input, &c_options);
+    } else {
+        output = solve_race_schedule(input, &c_options);
+    }
     
     // Output to JSON
     char* json_out = jres_output_to_json(output);
