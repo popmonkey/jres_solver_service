@@ -80,13 +80,16 @@ If you are deploying to a new site, you may need to edit the variables at the to
 
 ## Production Setup
 
-For production deployment on Debian 13, you can use the provided automated installation script.
+For production deployment on Linux, you can use the provided automated installation script.
+
+>[!NOTE]
+>The install script has only been tested on Debian Trixie
 
 ### Requirements
 
-*   **OS:** Debian 13 (Linux)
+*   **OS:** Debian (Linux)
 *   **Architecture:** Typically x86_64 (ensure you match the library build in `vendor/jres_solver/lib/`)
-*   **Reverse Proxy:** Apache2 (configured to proxy to `localhost:8080`)
+*   **Reverse Proxy:** Apache2
 *   **Permissions:** Root/sudo access for installation
 
 ### Automated Installation
@@ -100,6 +103,9 @@ For production deployment on Debian 13, you can use the provided automated insta
     ```
 
 The script will automatically install dependencies, create a dedicated `jres` user, build the service in release mode, and configure a `systemd` unit (`jres_solver.service`) to ensure the service starts at boot and recovers from crashes.
+
+>[!NOTE]
+>The install script has only been tested on Debian Trixie
 
 ### Service Management
 
