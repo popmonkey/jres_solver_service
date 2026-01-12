@@ -134,5 +134,7 @@ When running locally without the `LOG_DIR` environment variable, logs are direct
     - HTTP method and URI.
     - Referrer header.
     - Query parameters (e.g., `spotterMode`, `allowNoSpotter`).
+    - `instanceId` (if provided in the JSON body; an arbitrary identifier from the caller).
+- Full JSON request and response (only if `requestDirectory` is configured for debugging).
 - Unauthorized access attempts.
 
