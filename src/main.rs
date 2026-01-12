@@ -160,20 +160,26 @@ async fn solve(
         serde_json::json!({ "error": "Invalid JSON returned from solver", "raw": result })
     });
 
-    let success = result_json.get("schedule")
-        .and_then(|s| s.as_array())
-        .map(|s| !s.is_empty())
+    let diagnosis_array = result_json.get("diagnosis")
+        .and_then(|d| d.as_array());
+
+    let is_failure = diagnosis_array
+        .map(|arr| !arr.is_empty())
         .unwrap_or(false);
 
-    if success {
-        info!(user = %user, "Solver SUCCESS");
+    if !is_failure {
+        info!(user = %user, "SUCCESS");
     } else {
-        let diagnosis = result_json.get("diagnosis")
-            .and_then(|d| d.as_array())
-            .map(|arr| arr.iter().map(|v| v.as_str().unwrap_or("")).collect::<Vec<_>>().join("; "))
-            .unwrap_or_else(|| "Unknown error or no diagnosis".to_string());
+        let diagnosis_str = diagnosis_array
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .unwrap_or_else(|| "Unknown failure".to_string());
         
-        info!(user = %user, diagnosis = %diagnosis, "Solver UNSATISFIABLE");
+        info!(user = %user, "{}", diagnosis_str);
     }
 
     Json(result_json)
