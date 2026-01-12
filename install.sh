@@ -82,6 +82,7 @@ echo "Setting up installation directory at $INSTALL_DIR..."
 mkdir -p $INSTALL_DIR
 # We assume the script is run from inside the source directory
 rsync -av --exclude='target' ./ "$INSTALL_DIR/"
+cp config.prod.yaml "$INSTALL_DIR/config.yaml"
 chown -R $USER_NAME:$USER_NAME $INSTALL_DIR
 
 # Build the service
