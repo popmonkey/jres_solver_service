@@ -27,6 +27,15 @@ mkdir -p $LOG_DIR
 chown $USER_NAME:$USER_NAME $LOG_DIR
 chmod 755 $LOG_DIR
 
+# Setup request directory if configured
+REQUEST_DIR=$(grep "requestDirectory:" config.prod.yaml | awk -F'"' '{print $2}')
+if [ ! -z "$REQUEST_DIR" ]; then
+    echo "Setting up request directory at $REQUEST_DIR..."
+    mkdir -p "$REQUEST_DIR"
+    chown -R $USER_NAME:$USER_NAME "$REQUEST_DIR"
+    chmod 755 "$REQUEST_DIR"
+fi
+
 # Setup logrotate
 echo "Configuring logrotate..."
 cat > /etc/logrotate.d/${SERVICE_NAME} <<EOF

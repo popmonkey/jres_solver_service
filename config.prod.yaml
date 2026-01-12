@@ -9,4 +9,4 @@ solve:
 server:
   ip: "127.0.0.1"
   port: 11080
-
+  requestDirectory: "/var/tmp/jres_solver/requests"

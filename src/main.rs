@@ -48,12 +48,15 @@ struct SolveConfig {
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ServerConfig {
     ip: String,
     port: u16,
+    request_directory: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AppConfig {
     solve: SolveConfig,
     server: ServerConfig,
@@ -100,15 +103,39 @@ async fn auth(
 
 async fn solve(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Query(params): Query<SolveQueryParams>,
     Json(input): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
-    let user = input.get("user")
+    let instance_id = input.get("instanceId")
         .and_then(|v| v.as_str())
         .unwrap_or("none");
-    info!(user = %user, "Solving request");
+    let request_id = headers.get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
+
+    info!(instance_id = %instance_id, request_id = %request_id, "Solving request");
 
     let config = &state.config;
+
+    // Log request if configured
+    if let Some(req_dir) = &config.server.request_directory {
+        let req_dir = req_dir.clone();
+        let req_id = request_id.clone();
+        let input_clone = input.clone();
+        
+        tokio::spawn(async move {
+            let path = std::path::Path::new(&req_dir).join(&req_id);
+            if let Err(e) = tokio::fs::create_dir_all(&path).await {
+                warn!("Failed to create request directory {}: {}", path.display(), e);
+                return;
+            }
+            if let Err(e) = tokio::fs::write(path.join("request.json"), input_clone.to_string()).await {
+                warn!("Failed to write request.json: {}", e);
+            }
+        });
+    }
 
     // Merge config defaults with query parameters
     let options = ffi::SolverOptions {
@@ -131,6 +158,25 @@ async fn solve(
         serde_json::json!({ "error": "Invalid JSON returned from solver", "raw": result })
     });
 
+    // Log result if configured
+    if let Some(req_dir) = &config.server.request_directory {
+        let req_dir = req_dir.clone();
+        let req_id = request_id.clone();
+        let result_clone = result_json.clone();
+        
+        tokio::spawn(async move {
+            let path = std::path::Path::new(&req_dir).join(&req_id);
+            if let Err(e) = tokio::fs::create_dir_all(&path).await {
+                warn!("Failed to create request directory {}: {}", path.display(), e);
+                return;
+            }
+
+            if let Err(e) = tokio::fs::write(path.join("result.json"), result_clone.to_string()).await {
+                warn!("Failed to write result.json: {}", e);
+            }
+        });
+    }
+
     let diagnosis_array = result_json.get("diagnosis")
         .and_then(|d| d.as_array());
 
@@ -139,7 +185,7 @@ async fn solve(
         .unwrap_or(false);
 
     if !is_failure {
-        info!(user = %user, "SUCCESS");
+        info!(instance_id = %instance_id, "SUCCESS");
     } else {
         let diagnosis_str = diagnosis_array
             .map(|arr| {
@@ -150,7 +196,7 @@ async fn solve(
             })
             .unwrap_or_else(|| "Unknown failure".to_string());
         
-        info!(user = %user, "{}", diagnosis_str);
+        info!(instance_id = %instance_id, "{}", diagnosis_str);
     }
 
     Json(result_json)
