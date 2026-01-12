@@ -7,6 +7,7 @@ INSTALL_DIR="/opt/jres_solver_service"
 LOG_DIR="/var/log/jres_solver"
 USER_NAME="jres"
 BINARY_NAME="jres_solver_service"
+APACHE_SITE_CONFIG="/etc/apache2/sites-available/json.racing.conf"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
@@ -158,35 +159,23 @@ if [ -d "/etc/apache2" ]; then
     fi
     echo "Using service port: $SERVICE_PORT"
 
-    CONF_FILE="/etc/apache2/sites-enabled/json.racing.conf"
     APACHE_CHANGED=false
 
-    if [ -f "$CONF_FILE" ]; then
-        if ! grep -q "ProxyPass /api/solve" "$CONF_FILE"; then
-            echo "Adding proxy configuration to $CONF_FILE..."
+    if [ -f "$APACHE_SITE_CONFIG" ]; then
+        if ! grep -q "ProxyPass /api/solve" "$APACHE_SITE_CONFIG"; then
+            echo "Adding proxy configuration to $APACHE_SITE_CONFIG..."
             # Insert proxy settings before the closing VirtualHost tag
             sed -i "/<\/VirtualHost>/i \\
     ProxyPreserveHost On\\
     ProxyPass /api/solve http://127.0.0.1:$SERVICE_PORT/solve\\
-    ProxyPassReverse /api/solve http://127.0.0.1:$SERVICE_PORT/solve" "$CONF_FILE"
+    ProxyPassReverse /api/solve http://127.0.0.1:$SERVICE_PORT/solve" "$APACHE_SITE_CONFIG"
             APACHE_CHANGED=true
         else
-            echo "Proxy configuration already exists in $CONF_FILE."
+            echo "Proxy configuration already exists in $APACHE_SITE_CONFIG."
         fi
     else
-        echo "Creating $CONF_FILE..."
-        cat > "$CONF_FILE" <<EOF
-<VirtualHost *:80>
-    ServerName json.racing
-    DocumentRoot "/home/www/json.racing"
-    CustomLog "/var/log/apache2/json.racing.access_log" combined
-
-    ProxyPreserveHost On
-    ProxyPass /api/solve http://127.0.0.1:$SERVICE_PORT/solve
-    ProxyPassReverse /api/solve http://127.0.0.1:$SERVICE_PORT/solve
-</VirtualHost>
-EOF
-        APACHE_CHANGED=true
+        echo "Error: Apache site configuration not found at $APACHE_SITE_CONFIG"
+        exit 1
     fi
 
     # Reload Apache to apply changes
@@ -195,7 +184,8 @@ EOF
         echo "Apache reloaded."
     fi
 else
-    echo "Apache not found, skipping proxy configuration."
+    echo "Error: Apache configuration directory /etc/apache2 not found."
+    exit 1
 fi
 
 echo "Installation complete!"

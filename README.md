@@ -44,6 +44,40 @@ cargo build
 cargo run
 ```
 
+## Configuration
+
+The service behavior and environment can be adjusted via several configuration files.
+
+### 1. Application Settings (`config.yaml`)
+
+This file (copied from `config.prod.yaml` or `config.dev.yaml` during installation) controls the solver defaults and server networking.
+
+*   **`solve` Section:**
+    *   `timeLimit`: Maximum seconds the solver can run (default: `5`).
+    *   `optimalityGap`: The target gap for the solver (default: `0.2`).
+    *   `roleCouplingWeight`: Weight for role coupling constraints.
+    *   `rotationBeatWeight`: Weight for rotation beat constraints.
+    *   `spotterMode`: Default spotter logic mode.
+    *   `allowNoSpotter`: Whether to allow solutions without a spotter.
+*   **`server` Section:**
+    *   `ip`: The IP address to bind to (usually `127.0.0.1`).
+    *   `port`: The port the service listens on (default: `11080`).
+    *   `requestDirectory`: (Optional) Path to a directory where raw JSON requests and results will be saved for debugging.
+
+### 2. Security (`jres_api_key.txt`)
+
+Create a file named `jres_api_key.txt` in the project root (or installation directory) containing a single string. This key must be provided by clients in the `X-API-KEY` HTTP header.
+
+### 3. Installation Script (`install.sh`)
+
+If you are deploying to a new site, you may need to edit the variables at the top of `install.sh`:
+
+*   `SERVICE_NAME`: The name of the `systemd` service (default: `jres_solver`).
+*   `INSTALL_DIR`: Where the code and binary will reside (default: `/opt/jres_solver_service`).
+*   `LOG_DIR`: Where the application logs will be written (default: `/var/log/jres_solver`).
+*   `USER_NAME`: The system user that will run the service (default: `jres`).
+*   `APACHE_SITE_CONFIG`: The path to your Apache VirtualHost configuration file (e.g., `/etc/apache2/sites-available/your-site.conf`). The installer will append proxy rules to this file.
+
 ## Production Setup
 
 For production deployment on Debian 13, you can use the provided automated installation script.
