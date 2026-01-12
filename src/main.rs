@@ -11,6 +11,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::task;
 use tracing::{info, warn};
+use tower_http::{
+    request_id::{MakeRequestUuid, SetRequestIdLayer},
+    trace::TraceLayer,
+};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[cxx::bridge]
@@ -92,40 +96,7 @@ async fn auth(
     }
 }
 
-async fn log_request(
-    State(_state): State<Arc<AppState>>,
-    Query(params): Query<SolveQueryParams>,
-    headers: HeaderMap,
-    request: Request,
-    next: Next,
-) -> Response {
-    let referrer = headers
-        .get("referer")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown");
-    
-    let cf_ip = headers
-        .get("cf-connecting-ip")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown");
 
-    let origin = headers
-        .get("origin")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown");
-    
-    info!(
-        method = %request.method(),
-        uri = %request.uri(),
-        referrer = %referrer,
-        origin = %origin,
-        cf_ip = %cf_ip,
-        params = ?params,
-        "Handling request"
-    );
-    
-    next.run(request).await
-}
 
 async fn solve(
     State(state): State<Arc<AppState>>,
@@ -241,8 +212,36 @@ async fn main() {
 
     let app = Router::new()
         .route("/solve", post(solve))
-        .layer(middleware::from_fn_with_state(state.clone(), log_request))
         .layer(middleware::from_fn_with_state(state.clone(), auth))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &Request<_>| {
+                    let request_id = request.headers().get("x-request-id")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("unknown");
+                    let referer = request.headers().get("referer")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("unknown");
+                    let cf_ip = request.headers().get("cf-connecting-ip")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("unknown");
+                    let origin = request.headers().get("origin")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("unknown");
+                    let uri = request.uri().to_string();
+
+                    tracing::info_span!(
+                        "request",
+                        request_id = %request_id,
+                        method = %request.method(),
+                        uri = %uri,
+                        referer = %referer,
+                        origin = %origin,
+                        cf_ip = %cf_ip,
+                    )
+                })
+        )
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .with_state(state);
 
     let addr_str = format!("{}:{}", config.server.ip, config.server.port);
