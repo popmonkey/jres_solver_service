@@ -8,5 +8,5 @@ solve:
 
 server:
   ip: "127.0.0.1"
-  port: 11080
+  port: 8181
   requestDirectory: "/tmp/jres_solver/requests/"
