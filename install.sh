@@ -41,7 +41,7 @@ fi
 echo "Configuring logrotate..."
 cat > /etc/logrotate.d/${SERVICE_NAME} <<EOF
 $LOG_DIR/*.log {
-    daily
+    monthly
     missingok
     rotate 14
     compress
