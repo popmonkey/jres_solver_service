@@ -50,3 +50,8 @@ rust::String solve_wrapper(rust::String input_json, const SolverOptions& options
 
     return result;
 }
+
+rust::String get_version_wrapper() {
+    const char* version = jres_get_version();
+    return rust::String(version ? version : "unknown");
+}

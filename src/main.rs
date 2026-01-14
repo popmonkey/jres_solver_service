@@ -34,6 +34,7 @@ mod ffi {
         include!("src/shim.h");
 
         fn solve_wrapper(input_json: String, options: &SolverOptions) -> String;
+        fn get_version_wrapper() -> String;
     }
 }
 
@@ -264,6 +265,8 @@ async fn main() {
     }
 
     info!("Starting JRES Solver Service");
+    let version = ffi::get_version_wrapper();
+    info!("JRES Solver Version: {}", version);
 
     // Load configuration
     let config_file = std::fs::File::open("config.yaml").expect("Failed to open config.yaml");

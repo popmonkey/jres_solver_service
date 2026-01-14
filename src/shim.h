@@ -5,3 +5,4 @@
 struct SolverOptions;
 
 rust::String solve_wrapper(rust::String input_json, const SolverOptions& options);
+rust::String get_version_wrapper();
