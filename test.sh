@@ -2,7 +2,7 @@
 
 # Check for api key
 if [ ! -f jres_api_key.txt ]; then
-    echo "Error: jres_api_key.txt not found."
+    echo "Error: jres_api_key.txt not found." >&2
     exit 1
 fi
 
@@ -38,11 +38,19 @@ JSON_DATA='{
   ]
 }'
 
-# Make the curl request
-curl -X POST https://json.racing/api/solve \
+RESPONSE_FILE=$(mktemp)
+# Make the curl request, writing the HTTP status code to a variable and the body to a temp file.
+HTTP_STATUS=$(curl -s -o "$RESPONSE_FILE" -w "%{http_code}" \
+  -X POST https://json.racing/api/solve \
   -H "Content-Type: application/json" \
   -H "X-API-KEY: $API_KEY" \
-  -d "$JSON_DATA" \
-  -verbose
+  -d "$JSON_DATA")
 
-echo
+if [ "$HTTP_STATUS" -ne 200 ]; then
+    echo "Error: Solver returned HTTP status $HTTP_STATUS" >&2
+    cat "$RESPONSE_FILE" >&2 # Output body for context
+    rm "$RESPONSE_FILE"
+    exit 1
+fi
+
+rm "$RESPONSE_FILE"

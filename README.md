@@ -113,6 +113,20 @@ The script will automatically install dependencies, create a dedicated `jres` us
 *   **View logs:** `sudo journalctl -u jres_solver -f` (for systemd logs) or check `/var/log/jres_solver/jres_solver.log`
 *   **Restart:** `sudo systemctl restart jres_solver`
 
+## Monitoring
+
+A `test.sh` script is provided to perform a basic health check of the solver service. It sends a sample request and verifies that the service returns an HTTP 200 OK response. If the response is anything other than 200, the script will exit with a non-zero status code and print the error details to standard error.
+
+You can use this script with `cron` to automatically monitor the service and receive email notifications on failure.
+
+### Crontab Setup
+
+To run the health check daily at noon and have `cron` email you the output if it fails, add the following line to your crontab (by running `crontab -e`):
+
+```crontab
+0 12 * * * bash -c "cd [home of]/jres_solver_service/ && ./test.sh >/tmp/jres_solver_test.log 2>&1 || cat /tmp/jres_solver_test.log"
+```
+
 ## Logging
 
 The service uses the `tracing` crate for structured logging.
