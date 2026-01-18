@@ -162,17 +162,27 @@ if [ -d "/etc/apache2" ]; then
     APACHE_CHANGED=false
 
     if [ -f "$APACHE_SITE_CONFIG" ]; then
-        if ! grep -q "ProxyPass /api/solve" "$APACHE_SITE_CONFIG"; then
-            echo "Adding proxy configuration to $APACHE_SITE_CONFIG..."
-            # Insert proxy settings before the closing VirtualHost tag
-            sed -i "/<\/VirtualHost>/i \\
-    ProxyPreserveHost On\\
-    ProxyPass /api/solve http://127.0.0.1:$SERVICE_PORT/solve\\
-    ProxyPassReverse /api/solve http://127.0.0.1:$SERVICE_PORT/solve" "$APACHE_SITE_CONFIG"
-            APACHE_CHANGED=true
-        else
-            echo "Proxy configuration already exists in $APACHE_SITE_CONFIG."
+        PROXY_START_MARKER="# START: jres_solver_service proxy"
+        PROXY_END_MARKER="# END: jres_solver_service proxy"
+
+        # Remove existing proxy configuration block if it exists to ensure it's always up-to-date
+        if grep -q "$PROXY_START_MARKER" "$APACHE_SITE_CONFIG"; then
+            echo "Removing existing proxy configuration from $APACHE_SITE_CONFIG..."
+            sed -i.bak "/$PROXY_START_MARKER/,/$PROXY_END_MARKER/d" "$APACHE_SITE_CONFIG"
         fi
+
+        echo "Adding proxy configuration to $APACHE_SITE_CONFIG..."
+        # Insert proxy settings before the closing VirtualHost tag
+        sed -i "/<\/VirtualHost>/i \\
+    # START: jres_solver_service proxy\\
+    # DO NOT MODIFY MANUALLY\\
+    <Location \"/api/solve\">\\
+        ProxyPass http://127.0.0.1:$SERVICE_PORT/solve\\
+        ProxyPassReverse http://127.0.0.1:$SERVICE_PORT/solve\\
+    </Location>\\
+    # END: jres_solver_service proxy" "$APACHE_SITE_CONFIG"
+
+        APACHE_CHANGED=true
     else
         echo "Error: Apache site configuration not found at $APACHE_SITE_CONFIG"
         exit 1
