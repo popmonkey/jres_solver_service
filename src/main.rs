@@ -230,6 +230,14 @@ async fn solve(
 
 #[tokio::main]
 async fn main() {
+    // Check for version flag
+    let args: Vec<String> = std::env::args().collect();
+    if args.contains(&"--version".to_string()) {
+        let lib_version = ffi::get_version_wrapper();
+        println!("{} ({})", env!("CARGO_PKG_VERSION"), lib_version);
+        return;
+    }
+
     // Initialize logging
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("jres_solver_service=info,tower_http=info"));

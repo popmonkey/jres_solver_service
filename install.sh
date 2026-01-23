@@ -3,55 +3,34 @@ set -e
 
 # Configuration
 SERVICE_NAME="jres_solver"
-INSTALL_DIR="/opt/jres_solver_service"
-LOG_DIR="/var/log/jres_solver"
-USER_NAME="jres"
+LOG_DIR="/home/jules/json.racing/jres_solver_service/service/logs"
 BINARY_NAME="jres_solver_service"
 APACHE_SITE_CONFIG="/etc/apache2/sites-available/json.racing.conf"
 
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-  echo "Please run as root"
-  exit 1
-fi
-
-echo "Updating package lists..."
-apt-get update
-
-echo "Installing dependencies..."
-# Install build tools
-apt-get install -y build-essential curl pkg-config cmake git unzip rsync logrotate
+echo "Checking dependencies..."
+for cmd in build-essential curl pkg-config cmake git unzip rsync logrotate pm2; do
+    if ! command -v $cmd &> /dev/null;
+    then
+        echo "Missing dependency: $cmd. Please install it as root."
+    fi
+done
 
 # Setup log directory
-echo "Setting up log directory at $LOG_DIR..."
+echo "Setting up local log directory at $LOG_DIR..."
 mkdir -p $LOG_DIR
-chown $USER_NAME:$USER_NAME $LOG_DIR
-chmod 755 $LOG_DIR
+
+# Ensure config.yaml exists
+if [ ! -f "config.yaml" ]; then
+    echo "Creating config.yaml from config.prod.yaml..."
+    ln -s config.yaml config.prod.yaml
+fi
 
 # Setup request directory if configured
-REQUEST_DIR=$(grep "requestDirectory:" config.prod.yaml | awk -F'"' '{print $2}')
+REQUEST_DIR=$(grep "requestDirectory:" config.yaml | awk -F'"' '{print $2}')
 if [ ! -z "$REQUEST_DIR" ]; then
     echo "Setting up request directory at $REQUEST_DIR..."
     mkdir -p "$REQUEST_DIR"
-    chown -R $USER_NAME:$USER_NAME "$REQUEST_DIR"
-    chmod 755 "$REQUEST_DIR"
 fi
-
-# Setup logrotate
-echo "Configuring logrotate..."
-cat > /etc/logrotate.d/${SERVICE_NAME} <<EOF
-$LOG_DIR/*.log {
-    monthly
-    missingok
-    rotate 14
-    compress
-    delaycompress
-    notifempty
-    copytruncate
-    create 0640 $USER_NAME $USER_NAME
-    sharedscripts
-}
-EOF
 
 # Setup local Highs dependency
 HIGHS_DIR="vendor/highs"
@@ -60,144 +39,45 @@ REQUIRED_HIGHS_URL="https://github.com/popmonkey/jres_solver_cpp/releases/downlo
 if [ ! -d "$HIGHS_DIR" ]; then
     echo "Setting up local Highs dependency in $HIGHS_DIR..."
     mkdir -p $HIGHS_DIR
-    
     TMP_DIR=$(mktemp -d)
-    echo "Downloading prebuilt Highs..."
     curl -L -o $TMP_DIR/highs.zip "$REQUIRED_HIGHS_URL"
-    
-    echo "Extracting Highs..."
     unzip -q $TMP_DIR/highs.zip -d $HIGHS_DIR
-    
     rm -rf $TMP_DIR
-    echo "Highs setup complete."
-else
-    echo "Local Highs dependency found in $HIGHS_DIR."
 fi
-
-# Install Rust if not present
-if ! command -v cargo &> /dev/null; then
-    echo "Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source $HOME/.cargo/env
-fi
-
-# Create service user
-if ! id "$USER_NAME" &>/dev/null; then
-    echo "Creating service user '$USER_NAME'..."
-    useradd -r -s /bin/false $USER_NAME
-fi
-
-# Prepare install directory
-echo "Setting up installation directory at $INSTALL_DIR..."
-mkdir -p $INSTALL_DIR
-# We assume the script is run from inside the source directory
-rsync -av --exclude='target' ./ "$INSTALL_DIR/"
-cp config.prod.yaml "$INSTALL_DIR/config.yaml"
-chown -R $USER_NAME:$USER_NAME $INSTALL_DIR
 
 # Build the service
 echo "Building the service (release mode)..."
-cd $INSTALL_DIR
-# Ensure we are using the correct user for building if possible, or build as root and fix permissions
-# Building as root is easier for this script, but strictly speaking we should fix ownership after target creation.
-source $HOME/.cargo/env
+if [ -f "$HOME/.cargo/env" ]; then
+    source "$HOME/.cargo/env"
+fi
 cargo build --release
 
-# Ensure permissions are correct after build
-chown -R $USER_NAME:$USER_NAME $INSTALL_DIR
+# Generate package.json with version info
+VERSION=$(./target/release/jres_solver_service --version)
+echo "Detected Version: $VERSION"
+echo "{
+  \"name\": \"jres_solver\",
+  \"version\": \"$VERSION\",
+  \"description\": \"JRES Solver Service\",
+  \"private\": true
+}" > package.json
 
-# Create systemd service file
-echo "Creating systemd service file..."
-cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
-[Unit]
-Description=JRES Solver Service
-After=network.target
+# PM2 Deployment
+echo "Deploying with PM2..."
+pm2 startOrReload ecosystem.config.js --update-env
+pm2 save
 
-[Service]
-Type=simple
-User=$USER_NAME
-Group=$USER_NAME
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/target/release/$BINARY_NAME
-Restart=always
-RestartSec=5
-# Environment variables
-Environment=LOG_DIR=$LOG_DIR
-Environment=RUST_LOG=info
+# Instructions for Apache
+SERVICE_PORT=$(grep "port:" config.yaml | awk '{print $2}' | tr -d '[:space:]')
+echo ""
+echo "--- MANUAL STEP REQUIRED ---"
+echo "To update the Apache proxy, ensure $APACHE_SITE_CONFIG contains:"
+echo ""
+echo "    ProxyPass /api/solve http://127.0.0.1:$SERVICE_PORT/solve"
+echo "    ProxyPassReverse /api/solve http://127.0.0.1:$SERVICE_PORT/solve"
+echo ""
+echo "Then run: sudo apachectl configtest && sudo systemctl reload apache2"
+echo "----------------------------"
 
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable and start service
-echo "Reloading systemd daemon..."
-systemctl daemon-reload
-
-echo "Enabling service to start on boot..."
-systemctl enable $SERVICE_NAME
-
-echo "Starting service..."
-systemctl restart $SERVICE_NAME
-
-# Configure Apache Proxy
-if [ -d "/etc/apache2" ]; then
-    echo "Configuring Apache reverse proxy..."
-
-    # Enable required modules
-    if command -v a2enmod &> /dev/null; then
-        a2enmod proxy proxy_http
-    fi
-
-    # Extract port from config.yaml
-    CONFIG_PATH="$INSTALL_DIR/config.yaml"
-    SERVICE_PORT="8080" # Default
-    if [ -f "$CONFIG_PATH" ]; then
-        DETECTED_PORT=$(grep "port:" "$CONFIG_PATH" | awk '{print $2}' | tr -d '[:space:]')
-        if [ ! -z "$DETECTED_PORT" ]; then
-            SERVICE_PORT="$DETECTED_PORT"
-        fi
-    fi
-    echo "Using service port: $SERVICE_PORT"
-
-    APACHE_CHANGED=false
-
-    if [ -f "$APACHE_SITE_CONFIG" ]; then
-        PROXY_START_MARKER="# START: jres_solver_service proxy"
-        PROXY_END_MARKER="# END: jres_solver_service proxy"
-
-        # Remove existing proxy configuration block if it exists to ensure it's always up-to-date
-        if grep -q "$PROXY_START_MARKER" "$APACHE_SITE_CONFIG"; then
-            echo "Removing existing proxy configuration from $APACHE_SITE_CONFIG..."
-            sed -i.bak "/$PROXY_START_MARKER/,/$PROXY_END_MARKER/d" "$APACHE_SITE_CONFIG"
-        fi
-
-        echo "Adding proxy configuration to $APACHE_SITE_CONFIG..."
-        # Insert proxy settings before the closing VirtualHost tag
-        sed -i "/<\/VirtualHost>/i \\
-    # START: jres_solver_service proxy\\
-    # DO NOT MODIFY MANUALLY\\
-    <Location \"/api/solve\">\\
-        ProxyPass http://127.0.0.1:$SERVICE_PORT/solve\\
-        ProxyPassReverse http://127.0.0.1:$SERVICE_PORT/solve\\
-    </Location>\\
-    # END: jres_solver_service proxy" "$APACHE_SITE_CONFIG"
-
-        APACHE_CHANGED=true
-    else
-        echo "Error: Apache site configuration not found at $APACHE_SITE_CONFIG"
-        exit 1
-    fi
-
-    # Reload Apache to apply changes
-    if [ "$APACHE_CHANGED" = true ] && systemctl is-active --quiet apache2; then
-        systemctl reload apache2
-        echo "Apache reloaded."
-    fi
-else
-    echo "Error: Apache configuration directory /etc/apache2 not found."
-    exit 1
-fi
-
-echo "Installation complete!"
-echo "Status:"
-systemctl status $SERVICE_NAME --no-pager
+echo "Local installation complete!"
+pm2 list
